@@ -1,0 +1,118 @@
+MODULE user(proc_num, sem_count, sem_queue, sem_queue_poll, sem_queue_push, signals)
+  VAR
+    state : {idle,entering,waiting,critical,exiting};
+  ASSIGN
+    init(state) := idle;
+    next(state) :=
+      case
+        state = idle : {idle, entering};
+        state = entering & sem_count > 0 : critical;
+        state = entering : waiting;
+        state = waiting & signals[proc_num] : critical;
+        state = critical : {exiting};
+        state = exiting : idle;
+        TRUE : state;
+      esac;
+    next(sem_count) :=
+      case
+        state = entering & sem_count > 0 : sem_count - 1;
+        state = exiting & sem_queue[sem_queue_poll] = -1 : (sem_count + 1) mod {{SEM_COUNT + 1}};
+        TRUE : sem_count;
+      esac;
+    {% for i in range(PROC_COUNT) %}  
+    next(signals[{{i}}]) :=
+      case
+        {{i}} = proc_num & state = critical & signals[proc_num] : FALSE;
+        {{i}} = sem_queue[sem_queue_poll] & state = exiting & sem_queue[sem_queue_poll] != -1 : TRUE;
+        TRUE : signals[{{i}}];
+      esac;
+    {% endfor %}
+
+    {% for i in range(PROC_COUNT) %}  
+    next(sem_queue[{{i}}]) :=
+      case
+        {{i}} = sem_queue_push & state = entering & sem_count <= 0 : proc_num;
+        {{i}} = sem_queue_poll & state = exiting & sem_queue[sem_queue_poll] != -1 : -1;
+        TRUE : sem_queue[{{i}}];
+      esac;
+    {% endfor %}
+
+    next(sem_queue_push) :=
+      case
+        state = entering & sem_count <= 0 : (sem_queue_push + 1) mod {{PROC_COUNT}};
+        TRUE : sem_queue_push;
+      esac;
+    next(sem_queue_poll) :=
+      case
+        state = exiting & sem_queue[sem_queue_poll] != -1 : (sem_queue_poll + 1) mod {{PROC_COUNT}};
+        TRUE: sem_queue_poll;
+      esac;
+
+  FAIRNESS
+    running
+
+
+
+MODULE main
+  VAR
+  sem_count : 0..{{SEM_COUNT + 1}};
+  sem_queue : array 0..{{PROC_COUNT}} of -1..{{PROC_COUNT}};
+  sem_queue_poll : 0..{{PROC_COUNT}};
+  sem_queue_push : 0..{{PROC_COUNT}};
+  signals : array 0..{{PROC_COUNT}} of boolean;
+
+  {% for i in range(PROC_COUNT) %}
+  proc{{i}} : process user({{i}}, sem_count, sem_queue, sem_queue_poll, sem_queue_push, signals);
+  {% endfor %}
+
+  ASSIGN
+    init(sem_count) := {{SEM_COUNT}};
+    init(sem_queue_poll) := 0;
+    init(sem_queue_push) := 0;
+    {% for i in range(PROC_COUNT) %}
+    init(sem_queue[{{i}}]) := -1;
+    init(signals[{{i}}]) := FALSE;
+    {% endfor %}
+
+
+-- проверка на адекватность (есть сценарии в которых процесс входит и ждёт)
+  {% for i in range(PROC_COUNT) %}
+    CTLSPEC
+      EF (
+        proc{{i}}.state = critical
+      ) & EF (
+        proc{{i}}.state = waiting
+      );
+  {% endfor %}
+
+-- все процессы которые пытаются войти - войдут
+  {% for i in range(PROC_COUNT) %}
+    CTLSPEC
+      AG (proc{{i}}.state = entering -> AF proc{{i}}.state = critical);
+  {% endfor %}
+
+
+
+
+-- число одновременно вошедших процессов не превышает лимит в семафоре
+  CTLSPEC
+    AG (
+      {% for i in range(PROC_COUNT) %}
+      case
+        proc{{i}}.state = critical : 1;
+        TRUE : 0;
+      esac + 
+      {% endfor %} + 0 <= {{SEM_COUNT}}
+    );
+
+-- число одновременно вошедших процессов когда-нибудь может стать больше нуля
+  CTLSPEC
+    EF (
+      {% for i in range(PROC_COUNT) %}
+        case
+          proc{{i}}.state = critical : 1;
+          TRUE : 0;
+        esac + 
+      {% endfor %} + 0 > 0
+    );
+

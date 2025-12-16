@@ -1,0 +1,29 @@
+{% set PROC_COUNT = 3 %}
+{% set SEM_COUNT = 1 %}
+
+{% include './sem_base.smv' %}
+
+
+
+-- если один процесс вошёл - есть сценарий, что когда-нибудь войдёт другой
+  {% for i in range(PROC_COUNT) %}
+    CTLSPEC
+      AG (proc{{i}}.state = critical -> EF
+        {% for j in range(PROC_COUNT) if j != i %}
+        proc{{j}}.state = critical |
+        {% endfor %} FALSE
+      );
+  {% endfor %}
+
+
+
+-- если один процесс вышел - есть сценарий, в котором он войдёт ещё раз до других процессов
+  {% for i in range(PROC_COUNT) %}
+  CTLSPEC
+    EF (
+      proc{{i}}.state = exiting -> EX A[
+        {% for j in range(PROC_COUNT) if j != i %}
+        proc{{j}}.state != critical &
+        {% endfor %} TRUE U proc{{i}}.state = critical]
+    );
+  {% endfor %}
