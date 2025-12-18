@@ -16,7 +16,7 @@ MODULE user(proc_num, sem_count, sem_queue, sem_queue_poll, sem_queue_push, sign
     next(sem_count) :=
       case
         state = entering & sem_count > 0 : sem_count - 1;
-        state = exiting & sem_queue[sem_queue_poll] = -1 : (sem_count + 1) mod {{SEM_COUNT + 1}};
+        state = exiting & sem_queue[sem_queue_poll] = -1 : (sem_count + 1) mod {{SEM_COUNT + 2}};
         TRUE : sem_count;
       esac;
     {% for i in range(PROC_COUNT) %}  
@@ -28,7 +28,7 @@ MODULE user(proc_num, sem_count, sem_queue, sem_queue_poll, sem_queue_push, sign
       esac;
     {% endfor %}
 
-    {% for i in range(PROC_COUNT) %}  
+    {% for i in range(PROC_COUNT - SEM_COUNT) %}  
     next(sem_queue[{{i}}]) :=
       case
         {{i}} = sem_queue_push & state = entering & sem_count <= 0 : proc_num;
@@ -39,12 +39,12 @@ MODULE user(proc_num, sem_count, sem_queue, sem_queue_poll, sem_queue_push, sign
 
     next(sem_queue_push) :=
       case
-        state = entering & sem_count <= 0 : (sem_queue_push + 1) mod {{PROC_COUNT}};
+        state = entering & sem_count <= 0 : (sem_queue_push + 1) mod {{PROC_COUNT - SEM_COUNT}};
         TRUE : sem_queue_push;
       esac;
     next(sem_queue_poll) :=
       case
-        state = exiting & sem_queue[sem_queue_poll] != -1 : (sem_queue_poll + 1) mod {{PROC_COUNT}};
+        state = exiting & sem_queue[sem_queue_poll] != -1 : (sem_queue_poll + 1) mod {{PROC_COUNT - SEM_COUNT}};
         TRUE: sem_queue_poll;
       esac;
 
@@ -55,10 +55,10 @@ MODULE user(proc_num, sem_count, sem_queue, sem_queue_poll, sem_queue_push, sign
 
 MODULE main
   VAR
-  sem_count : 0..{{SEM_COUNT + 1}};
-  sem_queue : array 0..{{PROC_COUNT}} of -1..{{PROC_COUNT}};
-  sem_queue_poll : 0..{{PROC_COUNT}};
-  sem_queue_push : 0..{{PROC_COUNT}};
+  sem_count : 0..{{SEM_COUNT + 2}};
+  sem_queue : array 0..{{PROC_COUNT - SEM_COUNT}} of -1..{{PROC_COUNT}};
+  sem_queue_poll : 0..{{PROC_COUNT - SEM_COUNT}};
+  sem_queue_push : 0..{{PROC_COUNT - SEM_COUNT}};
   signals : array 0..{{PROC_COUNT}} of boolean;
 
   {% for i in range(PROC_COUNT) %}
@@ -70,8 +70,10 @@ MODULE main
     init(sem_queue_poll) := 0;
     init(sem_queue_push) := 0;
     {% for i in range(PROC_COUNT) %}
-    init(sem_queue[{{i}}]) := -1;
     init(signals[{{i}}]) := FALSE;
+    {% endfor %}
+    {% for i in range(PROC_COUNT - SEM_COUNT) %}
+    init(sem_queue[{{i}}]) := -1;
     {% endfor %}
 
 
@@ -104,6 +106,19 @@ MODULE main
       esac + 
       {% endfor %} + 0 <= {{SEM_COUNT}}
     );
+
+
+-- число одновременно вошедших процессов когда-нибудь может стать равным лимиту семафора
+  CTLSPEC
+    EF (
+      {% for i in range(PROC_COUNT) %}
+        case
+          proc{{i}}.state = critical : 1;
+          TRUE : 0;
+        esac + 
+      {% endfor %} + 0 = {{SEM_COUNT}}
+    );
+
 
 -- число одновременно вошедших процессов когда-нибудь может стать больше нуля
   CTLSPEC

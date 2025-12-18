@@ -1,4 +1,4 @@
-{% set PROC_COUNT = 4 %}
+{% set PROC_COUNT = 5 %}
 {% set SEM_COUNT = 3 %}
 
 {% include './sem_base.smv' %}
